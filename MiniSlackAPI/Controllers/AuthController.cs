@@ -56,12 +56,12 @@ public class AuthController : ControllerBase
             new Claim("name", user.Name)
         };
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("ThisIsASuperLongSecretKeyForJwt1234567890"));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            _config["Jwt:Issuer"],
-            _config["Jwt:Audience"],
+            "MiniSlackAPI",
+            "MiniSlackClient",
             claims,
             expires: DateTime.UtcNow.AddHours(2),
             signingCredentials: creds
