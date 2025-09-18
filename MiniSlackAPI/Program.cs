@@ -42,10 +42,21 @@ builder.Services.AddSignalR();
 // Add EF Core
 
 
-var dbHost = "localhost\\MiniSlack";
-var dbName = "Mini Slack Db";
-var dbPassword = "hareKrsna108";
-var connectionString = $"Server={dbHost};Database={dbName};User Id=sa;Password={dbPassword};TrustServerCertificate=True;";
+//var dbHost = Environment.GetEnvironmentVariable("DB_HOST");
+//var dbName = Environment.GetEnvironmentVariable("DB_NAME");
+//var dbPassword = Environment.GetEnvironmentVariable("DB_SA_PASSWORD");
+
+//var dbHost = "localhost\\MiniSlack";
+//var dbName = "MiniSlackDb";
+//var dbPassword = "hareKrsna108";
+
+var connectionString = builder.Configuration.GetConnectionString("MiniSlackDbDocker");
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(connectionString));
+
+
+//var connectionString = $"Server={dbHost};Database={dbName};User Id=sa;Password={dbPassword};TrustServerCertificate=True;";
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
