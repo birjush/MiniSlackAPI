@@ -53,6 +53,27 @@ public class WorkspacesController : ControllerBase
         return Ok(workspace);
     }
 
+
+    //get by user id
+    [HttpGet("user/{userId}")]
+    public async Task<IActionResult> GetByUserId(Guid userId)
+    {
+        var workspaces = await _context.Workspaces
+            .Include(w => w.Owner)
+            .Where(w => w.OwnerId == userId)
+            .Select(w => new WorkspaceDto
+            {
+                WorkspaceId = w.WorkspaceId,
+                Name = w.Name,
+                OwnerName = w.Owner.Name,
+                CreatedAt = w.CreatedAt
+            })
+            .ToListAsync();
+        return Ok(workspaces);
+    }
+   
+
+
     // ✅ Create workspace
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] WorkspaceDto dto)
