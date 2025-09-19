@@ -41,28 +41,18 @@ builder.Services.AddSignalR();
 
 // Add EF Core
 
-
-//var dbHost = Environment.GetEnvironmentVariable("DB_HOST");
-//var dbName = Environment.GetEnvironmentVariable("DB_NAME");
-//var dbPassword = Environment.GetEnvironmentVariable("DB_SA_PASSWORD");
-
-//var dbHost = "localhost\\MiniSlack";
-//var dbName = "MiniSlackDb";
-//var dbPassword = "hareKrsna108";
-
 var connectionString = builder.Configuration.GetConnectionString("MiniSlackDbDocker");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 
-//var connectionString = $"Server={dbHost};Database={dbName};User Id=sa;Password={dbPassword};TrustServerCertificate=True;";
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 // Add JWT authentication
-//var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes("ThisIsASuperLongSecretKeyForJwt1234567890");
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var key = Encoding.UTF8.GetBytes(jwtSettings["key"]);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -79,8 +69,8 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = "MiniSlackAPI",
-        ValidAudience = "MiniSlackClient",
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key)
     };
 });
