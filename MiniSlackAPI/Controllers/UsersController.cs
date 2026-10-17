@@ -1,33 +1,33 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Mini_Slack_API.models;
+using Npgsql;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize] // ⬅️ Require JWT token
+[Authorize]
 public class UsersController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly NpgsqlDataSource _dataSource;
 
-    public UsersController(ApplicationDbContext context)
+    public UsersController(NpgsqlDataSource dataSource)
     {
-        _context = context;
+        _dataSource = dataSource;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var users = await _context.Users
-            .Select(u => new UserDto
-            {
-                UserId = u.UserId,
-                Name = u.Name,
-                Email = u.Email,
-                AvatarUrl = u.AvatarUrl,
-                CreatedAt = u.CreatedAt
-            })
-            .ToListAsync();
+        var users = new List<UserDto>();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT user_id, name, email, avatar_url, created_at
+            FROM users
+            ORDER BY created_at
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            users.Add(ReadUser(reader));
 
         return Ok(users);
     }
@@ -35,21 +35,42 @@ public class UsersController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(Guid id)
     {
-        var user = await _context.Users.FindAsync(id);
-        if (user == null) return NotFound();
-        return Ok(user);
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT user_id, name, email, avatar_url, created_at
+            FROM users
+            WHERE user_id = @user_id
+            """, connection);
+        command.Parameters.AddWithValue("user_id", id);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? Ok(ReadUser(reader)) : NotFound();
     }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(Guid id, User updatedUser)
     {
-        var user = await _context.Users.FindAsync(id);
-        if (user == null) return NotFound();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            UPDATE users
+            SET name = @name, avatar_url = @avatar_url
+            WHERE user_id = @user_id
+            RETURNING user_id, name, email, avatar_url, created_at
+            """, connection);
+        command.Parameters.AddWithValue("user_id", id);
+        command.Parameters.AddWithValue("name", updatedUser.Name);
+        command.Parameters.AddWithValue("avatar_url", (object?)updatedUser.AvatarUrl ?? DBNull.Value);
 
-        user.Name = updatedUser.Name;
-        user.AvatarUrl = updatedUser.AvatarUrl;
-
-        await _context.SaveChangesAsync();
-        return Ok(user);
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? Ok(ReadUser(reader)) : NotFound();
     }
+
+    private static UserDto ReadUser(NpgsqlDataReader reader) => new()
+    {
+        UserId = reader.GetGuid(0),
+        Name = reader.GetString(1),
+        Email = reader.GetString(2),
+        AvatarUrl = reader.IsDBNull(3) ? null : reader.GetString(3),
+        CreatedAt = reader.GetDateTime(4)
+    };
 }

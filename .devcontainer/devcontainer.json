@@ -1,0 +1,28 @@
+{
+  "name": "MiniSlackAPI",
+  "image": "mcr.microsoft.com/dotnet/sdk:9.0",
+  "containerEnv": {
+    "ASPNETCORE_ENVIRONMENT": "Development",
+    "DOTNET_USE_POLLING_FILE_WATCHER": "1"
+  },
+  "forwardPorts": [5113],
+  "portsAttributes": {
+    "5113": {
+      "label": "MiniSlack API",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "dotnet restore MiniSlackAPI.sln",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "ms-dotnettools.csharp",
+        "humao.rest-client"
+      ],
+      "settings": {
+        "dotnet.defaultSolution": "MiniSlackAPI.sln"
+      }
+    }
+  }
+}

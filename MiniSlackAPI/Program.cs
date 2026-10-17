@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,21 +52,19 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddSignalR();
 
-// Add EF Core
+var connectionString = builder.Configuration.GetConnectionString("MiniSlackDb")
+    ?? throw new InvalidOperationException("Connection string 'MiniSlackDb' is not configured.");
 
-var connectionString = builder.Configuration.GetConnectionString("MiniSlackDbDocker");
-
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString));
-
-
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString));
-
+builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 
 // Add JWT authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes(jwtSettings["key"]);
+var key = Encoding.UTF8.GetBytes(
+    jwtSettings["Key"] ?? throw new InvalidOperationException("JWT key is not configured."));
+var issuer = jwtSettings["Issuer"]
+    ?? throw new InvalidOperationException("JWT issuer is not configured.");
+var audience = jwtSettings["Audience"]
+    ?? throw new InvalidOperationException("JWT audience is not configured.");
 
 builder.Services.AddAuthentication(options =>
 {
@@ -83,8 +81,8 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtSettings["Issuer"],
-        ValidAudience = jwtSettings["Audience"],
+        ValidIssuer = issuer,
+        ValidAudience = audience,
         IssuerSigningKey = new SymmetricSecurityKey(key)
     };
 });

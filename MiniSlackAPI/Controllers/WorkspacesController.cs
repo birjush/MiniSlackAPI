@@ -1,99 +1,110 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Mini_Slack_API.models;
+using Npgsql;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize] // Require JWT
+[Authorize]
 public class WorkspacesController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly NpgsqlDataSource _dataSource;
 
-    public WorkspacesController(ApplicationDbContext context)
+    public WorkspacesController(NpgsqlDataSource dataSource)
     {
-        _context = context;
+        _dataSource = dataSource;
     }
 
-    // ✅ Get all workspaces
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var workspaces = await _context.Workspaces
-            .Include(w => w.Owner)
-            .Select(w => new WorkspaceDto
-            {
-                WorkspaceId = w.WorkspaceId,
-                Name = w.Name,
-                OwnerName = w.Owner.Name,
-                CreatedAt = w.CreatedAt
-            })
-            .ToListAsync();
+        var workspaces = new List<WorkspaceDto>();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT w.workspace_id, w.name, w.owner_id, u.name, w.created_at
+            FROM workspaces AS w
+            JOIN users AS u ON u.user_id = w.owner_id
+            ORDER BY w.created_at
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            workspaces.Add(ReadWorkspace(reader));
 
         return Ok(workspaces);
     }
 
-    // ✅ Get workspace by ID
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(Guid id)
     {
-        var workspace = await _context.Workspaces
-            .Include(w => w.Owner)
-            .Where(w => w.WorkspaceId == id)
-            .Select(w => new WorkspaceDto
-            {
-                WorkspaceId = w.WorkspaceId,
-                Name = w.Name,
-                OwnerName = w.Owner.Name,
-                CreatedAt = w.CreatedAt
-            })
-            .FirstOrDefaultAsync();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT w.workspace_id, w.name, w.owner_id, u.name, w.created_at
+            FROM workspaces AS w
+            JOIN users AS u ON u.user_id = w.owner_id
+            WHERE w.workspace_id = @workspace_id
+            """, connection);
+        command.Parameters.AddWithValue("workspace_id", id);
 
-        if (workspace == null) return NotFound();
-        return Ok(workspace);
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? Ok(ReadWorkspace(reader)) : NotFound();
     }
 
-
-    //get by user id
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetByUserId(Guid userId)
     {
-        var workspaces = await _context.Workspaces
-            .Include(w => w.Owner)
-            .Where(w => w.OwnerId == userId)
-            .Select(w => new WorkspaceDto
-            {
-                WorkspaceId = w.WorkspaceId,
-                Name = w.Name,
-                OwnerName = w.Owner.Name,
-                CreatedAt = w.CreatedAt
-            })
-            .ToListAsync();
+        var workspaces = new List<WorkspaceDto>();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT w.workspace_id, w.name, w.owner_id, u.name, w.created_at
+            FROM workspaces AS w
+            JOIN users AS u ON u.user_id = w.owner_id
+            WHERE w.owner_id = @owner_id
+            ORDER BY w.created_at
+            """, connection);
+        command.Parameters.AddWithValue("owner_id", userId);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            workspaces.Add(ReadWorkspace(reader));
+
         return Ok(workspaces);
     }
-   
 
-
-    // ✅ Create workspace
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] WorkspaceDto dto)
     {
-        var workspace = new Workspace
-        {
-            WorkspaceId = Guid.NewGuid(),
-            Name = dto.Name,
-            CreatedAt = DateTime.UtcNow
-        };
+        var workspaceId = Guid.NewGuid();
+        var createdAt = DateTime.UtcNow;
 
-        _context.Workspaces.Add(workspace);
-        await _context.SaveChangesAsync();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("""
+            WITH new_workspace AS (
+                INSERT INTO workspaces (workspace_id, name, owner_id, created_at)
+                SELECT @workspace_id, @name, @owner_id, @created_at
+                WHERE EXISTS (SELECT 1 FROM users WHERE user_id = @owner_id)
+                RETURNING workspace_id, name, owner_id, created_at
+            )
+            SELECT w.workspace_id, w.name, w.owner_id, u.name, w.created_at
+            FROM new_workspace AS w
+            JOIN users AS u ON u.user_id = w.owner_id
+            """, connection);
+        command.Parameters.AddWithValue("workspace_id", workspaceId);
+        command.Parameters.AddWithValue("name", dto.Name);
+        command.Parameters.AddWithValue("owner_id", dto.OwnerId);
+        command.Parameters.AddWithValue("created_at", createdAt);
 
-        return Ok(new WorkspaceDto
-        {
-            WorkspaceId = workspace.WorkspaceId,
-            Name = workspace.Name,
-            OwnerName = (await _context.Users.FindAsync(workspace.OwnerId))?.Name ?? "",
-            CreatedAt = workspace.CreatedAt
-        });
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync()
+            ? Ok(ReadWorkspace(reader))
+            : BadRequest("Workspace owner was not found.");
     }
+
+    private static WorkspaceDto ReadWorkspace(NpgsqlDataReader reader) => new()
+    {
+        WorkspaceId = reader.GetGuid(0),
+        Name = reader.GetString(1),
+        OwnerId = reader.GetGuid(2),
+        OwnerName = reader.GetString(3),
+        CreatedAt = reader.GetDateTime(4)
+    };
 }
